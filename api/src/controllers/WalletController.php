@@ -28,6 +28,7 @@ class WalletController {
             $amount = (float)$data['amount'];
             $paymentMethod = $data['payment_method'];
             $description = $data['description'] ?? "Recarga via {$paymentMethod}";
+            $walletType = $data['wallet_type'] ?? 'main';
             
             // Valor para o caixa central (considera desconto de cupom se aplicável)
             $centralCashAmount = isset($data['central_cash_amount']) ? (float)$data['central_cash_amount'] : $amount;
@@ -35,7 +36,7 @@ class WalletController {
             // Dados do cupom se aplicável
             $cupomData = isset($data['cupom_data']) ? $data['cupom_data'] : null;
             
-            // Buscar saldo atual do usuário na tabela correta (sempre carteira principal)
+            // Buscar saldo atual do usuário
             $query = "SELECT saldo, saldo_plano FROM users WHERE id = ?";
             $stmt = $this->db->prepare($query);
             $stmt->execute([$userId]);
@@ -45,35 +46,70 @@ class WalletController {
                 throw new Exception('Usuário não encontrado');
             }
             
-            // LÓGICA SIMPLIFICADA: Agora o cupom é processado separadamente
-            // Apenas adicionar o valor solicitado à carteira principal
-            $currentBalance = (float)($userData['saldo'] ?? 0);
-            $newBalance = $currentBalance + $amount;
-            
-            // Atualizar saldo na tabela users (sempre carteira principal)
-            $updateQuery = "UPDATE users SET saldo = ?, saldo_atualizado = 1, updated_at = NOW() WHERE id = ?";
-            $updateStmt = $this->db->prepare($updateQuery);
-            $updateStmt->execute([$newBalance, $userId]);
-            
-            // Criar ou atualizar carteira principal
-            $walletQuery = "INSERT INTO user_wallets (user_id, wallet_type, current_balance, available_balance, total_deposited) 
-                           VALUES (?, 'main', ?, ?, ?) 
-                           ON DUPLICATE KEY UPDATE 
-                           current_balance = VALUES(current_balance), 
-                           available_balance = VALUES(available_balance), 
-                           total_deposited = total_deposited + VALUES(total_deposited),
-                           last_transaction_at = NOW(),
-                           updated_at = NOW()";
-            $walletStmt = $this->db->prepare($walletQuery);
-            $walletStmt->execute([$userId, $newBalance, $newBalance, $amount]);
-            
-            // Registrar transação na wallet_transactions
-            $transactionQuery = "INSERT INTO wallet_transactions 
-                               (user_id, wallet_type, type, amount, balance_before, balance_after, description, payment_method, status) 
-                               VALUES (?, 'main', 'recarga', ?, ?, ?, ?, ?, 'completed')";
-            $transactionStmt = $this->db->prepare($transactionQuery);
-            $transactionStmt->execute([$userId, $amount, $currentBalance, $newBalance, $description, $paymentMethod]);
-            $transactionId = $this->db->lastInsertId();
+            if ($walletType === 'plan') {
+                // Operação na carteira do plano
+                $currentBalance = (float)($userData['saldo_plano'] ?? 0);
+                $newBalance = $currentBalance + $amount;
+                
+                // Atualizar saldo_plano na tabela users
+                $updateQuery = "UPDATE users SET saldo_plano = ?, saldo_atualizado = 1, updated_at = NOW() WHERE id = ?";
+                $updateStmt = $this->db->prepare($updateQuery);
+                $updateStmt->execute([$newBalance, $userId]);
+                
+                // Criar ou atualizar carteira plan
+                $walletQuery = "INSERT INTO user_wallets (user_id, wallet_type, current_balance, available_balance, total_deposited) 
+                               VALUES (?, 'plan', ?, ?, ?) 
+                               ON DUPLICATE KEY UPDATE 
+                               current_balance = VALUES(current_balance), 
+                               available_balance = VALUES(available_balance), 
+                               last_transaction_at = NOW(),
+                               updated_at = NOW()";
+                $walletStmt = $this->db->prepare($walletQuery);
+                $walletStmt->execute([$userId, $newBalance, $newBalance, 0]);
+                
+                // Registrar transação na wallet_transactions como tipo plan/consulta
+                $transType = $amount < 0 ? 'consulta' : 'recarga';
+                $transactionQuery = "INSERT INTO wallet_transactions 
+                                    (user_id, wallet_type, type, amount, balance_before, balance_after, description, payment_method, status) 
+                                    VALUES (?, 'plan', ?, ?, ?, ?, ?, ?, 'completed')";
+                $transactionStmt = $this->db->prepare($transactionQuery);
+                $transactionStmt->execute([$userId, $transType, $amount, $currentBalance, $newBalance, $description, $paymentMethod]);
+                $transactionId = $this->db->lastInsertId();
+                
+                error_log("WALLET_CONTROLLER: Operação PLAN - Valor: R$ {$amount}, Saldo anterior: R$ {$currentBalance}, Novo saldo: R$ {$newBalance}");
+            } else {
+                // Operação na carteira principal (main) - lógica original
+                $currentBalance = (float)($userData['saldo'] ?? 0);
+                $newBalance = $currentBalance + $amount;
+                
+                // Atualizar saldo na tabela users
+                $updateQuery = "UPDATE users SET saldo = ?, saldo_atualizado = 1, updated_at = NOW() WHERE id = ?";
+                $updateStmt = $this->db->prepare($updateQuery);
+                $updateStmt->execute([$newBalance, $userId]);
+                
+                // Criar ou atualizar carteira principal
+                $walletQuery = "INSERT INTO user_wallets (user_id, wallet_type, current_balance, available_balance, total_deposited) 
+                               VALUES (?, 'main', ?, ?, ?) 
+                               ON DUPLICATE KEY UPDATE 
+                               current_balance = VALUES(current_balance), 
+                               available_balance = VALUES(available_balance), 
+                               total_deposited = total_deposited + VALUES(total_deposited),
+                               last_transaction_at = NOW(),
+                               updated_at = NOW()";
+                $walletStmt = $this->db->prepare($walletQuery);
+                $walletStmt->execute([$userId, $newBalance, $newBalance, $amount]);
+                
+                // Registrar transação na wallet_transactions
+                $transType = $amount < 0 ? 'consulta' : 'recarga';
+                $transactionQuery = "INSERT INTO wallet_transactions 
+                                    (user_id, wallet_type, type, amount, balance_before, balance_after, description, payment_method, status) 
+                                    VALUES (?, 'main', ?, ?, ?, ?, ?, ?, 'completed')";
+                $transactionStmt = $this->db->prepare($transactionQuery);
+                $transactionStmt->execute([$userId, $transType, $amount, $currentBalance, $newBalance, $description, $paymentMethod]);
+                $transactionId = $this->db->lastInsertId();
+                
+                error_log("WALLET_CONTROLLER: Operação MAIN - Valor: R$ {$amount}, Novo saldo: R$ {$newBalance}");
+            }
             
             error_log("WALLET_CONTROLLER: Recarga processada - Valor: R$ {$amount}, Novo saldo: R$ {$newBalance}");
             

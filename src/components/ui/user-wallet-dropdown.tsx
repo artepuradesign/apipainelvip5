@@ -222,7 +222,7 @@ const UserWalletDropdown = ({ onLogout }: UserWalletDropdownProps) => {
                 {/* Balance Details */}
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Disponível para consultas</span>
+                    <span className="text-muted-foreground">Saldo da Carteira</span>
                     <div className="font-bold text-gray-900 dark:text-white">
                       {showBalance ? formatBrazilianCurrency(balance.saldo) : 'R$***'}
                     </div>
