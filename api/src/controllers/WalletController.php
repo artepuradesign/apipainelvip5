@@ -111,24 +111,30 @@ class WalletController {
                 error_log("WALLET_CONTROLLER: Operação MAIN - Valor: R$ {$amount}, Novo saldo: R$ {$newBalance}");
             }
             
-            error_log("WALLET_CONTROLLER: Recarga processada - Valor: R$ {$amount}, Novo saldo: R$ {$newBalance}");
+            error_log("WALLET_CONTROLLER: Operação processada - WalletType: {$walletType}, Valor: R$ {$amount}, Novo saldo: R$ {$newBalance}");
             
-            // Buscar saldo atual do caixa central (precisa ser feito antes dos registros)
-            $centralBalanceQuery = "SELECT COALESCE(SUM(CASE WHEN transaction_type IN ('entrada', 'recarga', 'plano') THEN amount ELSE -amount END), 0) FROM central_cash";
-            $centralBalanceStmt = $this->db->prepare($centralBalanceQuery);
-            $centralBalanceStmt->execute();
-            $centralCurrentBalance = (float)$centralBalanceStmt->fetchColumn();
-            
-            // Registrar entrada do valor efetivamente pago no caixa central
-            $centralCashQuery = "INSERT INTO central_cash 
-                               (transaction_type, amount, balance_before, balance_after, description, user_id, payment_method, reference_table, reference_id) 
-                               VALUES ('recarga', ?, ?, ?, ?, ?, ?, 'wallet_transactions', ?)";
-            $centralStmt = $this->db->prepare($centralCashQuery);
-            
-            $centralNewBalance = $centralCurrentBalance + $centralCashAmount;
-            $centralStmt->execute([$centralCashAmount, $centralCurrentBalance, $centralNewBalance, $description, $userId, $paymentMethod, $transactionId]);
-            
-            error_log("WALLET_CONTROLLER: Recarga processada - Valor entrada caixa: R$ {$centralCashAmount}, Valor saldo usuário: R$ {$amount}");
+            // Registrar no caixa central APENAS para recargas (amount > 0) e carteira principal
+            // Consultas (amount < 0) e débitos do plano NÃO devem ir para o caixa central
+            if ($amount > 0 && $walletType === 'main') {
+                // Buscar saldo atual do caixa central
+                $centralBalanceQuery = "SELECT COALESCE(SUM(CASE WHEN transaction_type IN ('entrada', 'recarga', 'plano') THEN amount ELSE -amount END), 0) FROM central_cash";
+                $centralBalanceStmt = $this->db->prepare($centralBalanceQuery);
+                $centralBalanceStmt->execute();
+                $centralCurrentBalance = (float)$centralBalanceStmt->fetchColumn();
+                
+                // Registrar entrada do valor efetivamente pago no caixa central
+                $centralCashQuery = "INSERT INTO central_cash 
+                                   (transaction_type, amount, balance_before, balance_after, description, user_id, payment_method, reference_table, reference_id) 
+                                   VALUES ('recarga', ?, ?, ?, ?, ?, ?, 'wallet_transactions', ?)";
+                $centralStmt = $this->db->prepare($centralCashQuery);
+                
+                $centralNewBalance = $centralCurrentBalance + $centralCashAmount;
+                $centralStmt->execute([$centralCashAmount, $centralCurrentBalance, $centralNewBalance, $description, $userId, $paymentMethod, $transactionId]);
+                
+                error_log("WALLET_CONTROLLER: Registrado no caixa central - Valor: R$ {$centralCashAmount}");
+            } else {
+                error_log("WALLET_CONTROLLER: Operação de débito/consulta - NÃO registra no caixa central (walletType: {$walletType}, amount: {$amount})");
+            }
             
             // Registrar auditoria
             $finalBalance = $cupomData ? ($currentBalance + $amount) : $newBalance;

@@ -113,12 +113,15 @@ const QRCodeRg1m = () => {
       const response = await fetch(`${PHP_API_BASE}/list_users.php?limit=100&offset=0&id_user=${encodeURIComponent(userId)}`);
       const data = await response.json();
       if (data.success && Array.isArray(data.data)) {
-        // Filtrar apenas cadastros do módulo QR Code RG 1M (validade ~30 dias, <= 60)
-        const filtered = data.data.filter((item: RegistroData) => {
+        // Filtrar apenas cadastros do módulo QR Code RG 1M
+        const filtered = data.data.filter((item: any) => {
+          // Se tem module_source, usar diretamente
+          if (item.module_source) return item.module_source === MODULE_SOURCE;
+          // Fallback: filtrar por duração da validade (<=45 dias = 1M)
           const created = new Date(item.created_at).getTime();
           const expiry = new Date(item.expiry_date).getTime();
           const diffDays = (expiry - created) / (1000 * 60 * 60 * 24);
-          return diffDays <= 60;
+          return diffDays <= 45;
         });
         setRecentRegistrations(filtered);
         const todayStr = new Date().toDateString();
@@ -191,6 +194,7 @@ const QRCodeRg1m = () => {
       const expiryDate = new Date();
       expiryDate.setMonth(expiryDate.getMonth() + EXPIRY_MONTHS);
       formDataToSend.append('expiry_date', expiryDate.toISOString().split('T')[0]);
+      formDataToSend.append('module_source', MODULE_SOURCE);
       if (formData.foto) formDataToSend.append('photo', formData.foto);
 
       let response: Response;
