@@ -170,12 +170,15 @@ const QRCodeRg6m = () => {
       const data = await response.json();
       
       if (data.success && Array.isArray(data.data)) {
-        // Filtrar apenas cadastros do módulo QR Code RG 6M (validade ~6 meses = >120 dias)
-        const filtered = data.data.filter((item: RegistroData) => {
+        // Filtrar apenas cadastros do módulo QR Code RG 6M
+        const filtered = data.data.filter((item: any) => {
+          // Se tem module_source, usar diretamente
+          if (item.module_source) return item.module_source === 'qrcode-rg-6m';
+          // Fallback: filtrar por duração da validade (>135 dias = 6M)
           const created = new Date(item.created_at).getTime();
           const expiry = new Date(item.expiry_date).getTime();
           const diffDays = (expiry - created) / (1000 * 60 * 60 * 24);
-          return diffDays > 120; // 6M = ~180 dias, 3M = ~90 dias, 1M = ~30 dias
+          return diffDays > 135;
         });
         setRecentRegistrations(filtered);
         // Calcular estatísticas
@@ -378,6 +381,7 @@ const QRCodeRg6m = () => {
       expiryDate.setMonth(expiryDate.getMonth() + 6);
       const formattedExpiry = expiryDate.toISOString().split('T')[0]; // YYYY-MM-DD
       formDataToSend.append('expiry_date', formattedExpiry);
+      formDataToSend.append('module_source', 'qrcode-rg-6m');
       
       if (formData.foto) {
         formDataToSend.append('photo', formData.foto);
