@@ -219,18 +219,47 @@ const QRCodeRg6m = () => {
     if (user) {
       reloadApiBalance();
       loadRecentRegistrations();
-      // Carregar custos reais das consultas
-      moduleHistoryService.getHistory('/dashboard/qrcode-rg-6m', 100, 0).then(response => {
-        if (response.success && response.data?.data) {
+      // Carregar custos reais das consultas via módulo history + wallet transactions
+      const loadCosts = async () => {
+        try {
+          // Tentar via module history (consultations table)
+          const historyResponse = await moduleHistoryService.getHistory('/dashboard/qrcode-rg-6m', 100, 0);
           const map: Record<string, number> = {};
-          response.data.data.forEach((item: any) => {
-            if (item.document && item.cost) {
-              map[item.document] = item.cost;
-            }
-          });
+          
+          if (historyResponse.success && historyResponse.data?.data) {
+            historyResponse.data.data.forEach((item: any) => {
+              if (item.document && item.cost) {
+                map[item.document] = item.cost;
+              }
+            });
+          }
+          
+          // Complementar com wallet transactions (mais confiável)
+          const txResponse = await walletApiService.getTransactionHistory(parseInt(user.id), 200);
+          if (txResponse.success && txResponse.data) {
+            const transactions = Array.isArray(txResponse.data) ? txResponse.data : [];
+            transactions.forEach((tx: any) => {
+              // Buscar transações de consulta QR Code RG
+              if (tx.description && tx.description.includes('Cadastro QR Code RG') && tx.amount < 0) {
+                // Extrair nome da descrição: "Cadastro QR Code RG - NOME"
+                const nameMatch = tx.description.match(/Cadastro QR Code RG[^-]*-\s*(.+?)(?:\s*\(|$)/);
+                if (nameMatch) {
+                  const nome = nameMatch[1].trim();
+                  // Não sobrescrever se já temos do module history
+                  if (!map[nome]) {
+                    map[`__name__${nome}`] = Math.abs(tx.amount);
+                  }
+                }
+              }
+            });
+          }
+          
           setCostMap(map);
+        } catch (e) {
+          console.error('Erro ao carregar custos:', e);
         }
-      }).catch(() => {});
+      };
+      loadCosts();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -1030,7 +1059,7 @@ const QRCodeRg6m = () => {
                           {formatFullDate(registration.created_at)}
                         </TableCell>
                         <TableCell className="text-right text-xs sm:text-sm font-medium text-destructive whitespace-nowrap">
-                          R$ {(costMap[registration.document_number] ?? finalPrice).toFixed(2)}
+                          R$ {(costMap[registration.document_number] ?? costMap[`__name__${registration.full_name}`] ?? finalPrice).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge className="text-xs rounded-full bg-foreground text-background hover:bg-foreground/90">
