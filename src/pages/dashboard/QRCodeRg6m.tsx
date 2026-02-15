@@ -168,13 +168,19 @@ const QRCodeRg6m = () => {
       const data = await response.json();
       
       if (data.success && Array.isArray(data.data)) {
-        setRecentRegistrations(data.data);
-        
+        // Filtrar apenas cadastros do módulo QR Code RG 6M (validade ~6 meses = >120 dias)
+        const filtered = data.data.filter((item: RegistroData) => {
+          const created = new Date(item.created_at).getTime();
+          const expiry = new Date(item.expiry_date).getTime();
+          const diffDays = (expiry - created) / (1000 * 60 * 60 * 24);
+          return diffDays > 120; // 6M = ~180 dias, 3M = ~90 dias, 1M = ~30 dias
+        });
+        setRecentRegistrations(filtered);
         // Calcular estatísticas
         const todayStr = new Date().toDateString();
         const now = new Date();
         
-        const computed = data.data.reduce((acc: any, item: RegistroData) => {
+        const computed = filtered.reduce((acc: any, item: RegistroData) => {
           acc.total += 1;
           if (item.validation === 'verified') acc.completed += 1;
           else acc.pending += 1;
@@ -185,9 +191,6 @@ const QRCodeRg6m = () => {
           
           return acc;
         }, { total: 0, completed: 0, pending: 0, today: 0, this_month: 0, total_cost: 0 });
-        
-        // Total real vem da paginação
-        computed.total = data.pagination?.total || computed.total;
         
         setStats(computed);
       } else {
