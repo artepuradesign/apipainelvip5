@@ -393,21 +393,23 @@ const QRCodeRg6m = () => {
       try {
         // Determinar tipo de saldo usado
         let saldoUsado: 'plano' | 'carteira' | 'misto' = 'carteira';
-        let walletType: 'main' | 'plan' = 'main';
         
         if (planBalance >= finalPrice) {
+          // Plano cobre tudo - transação única do plano
           saldoUsado = 'plano';
-          walletType = 'plan';
+          await walletApiService.addBalance(0, -finalPrice, `Cadastro QR Code RG - ${formData.nome}`, 'consulta', undefined, 'plan');
         } else if (planBalance > 0 && (planBalance + walletBalance) >= finalPrice) {
+          // Saldo misto - primeiro esgota o plano, depois completa com carteira
           saldoUsado = 'misto';
-          // Para saldo misto, debitar tudo do main (o backend gerencia a divisão internamente)
-          walletType = 'main';
+          const restanteDaCarteira = finalPrice - planBalance;
+          await walletApiService.addBalance(0, -planBalance, `Cadastro QR Code RG - ${formData.nome} (saldo plano)`, 'consulta', undefined, 'plan');
+          await walletApiService.addBalance(0, -restanteDaCarteira, `Cadastro QR Code RG - ${formData.nome} (saldo carteira)`, 'consulta', undefined, 'main');
+        } else {
+          // Só carteira - transação única da carteira
+          await walletApiService.addBalance(0, -finalPrice, `Cadastro QR Code RG - ${formData.nome}`, 'consulta', undefined, 'main');
         }
 
         const moduleId = currentModule?.panel_id || currentModule?.id || 0;
-
-        // Transação única do valor total - evita duplicação no extrato
-        await walletApiService.addBalance(0, -finalPrice, `Cadastro QR Code RG - ${formData.nome}`, 'consulta', undefined, walletType);
 
         // Registrar no histórico de consultas
         await consultationApiService.recordConsultation({
