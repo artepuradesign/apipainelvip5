@@ -113,10 +113,17 @@ const QRCodeRg1m = () => {
       const response = await fetch(`${PHP_API_BASE}/list_users.php?limit=100&offset=0&id_user=${encodeURIComponent(userId)}`);
       const data = await response.json();
       if (data.success && Array.isArray(data.data)) {
-        setRecentRegistrations(data.data);
+        // Filtrar apenas cadastros do módulo QR Code RG 1M (validade ~30 dias, <= 60)
+        const filtered = data.data.filter((item: RegistroData) => {
+          const created = new Date(item.created_at).getTime();
+          const expiry = new Date(item.expiry_date).getTime();
+          const diffDays = (expiry - created) / (1000 * 60 * 60 * 24);
+          return diffDays <= 60;
+        });
+        setRecentRegistrations(filtered);
         const todayStr = new Date().toDateString();
         const now = new Date();
-        const computed = data.data.reduce((acc: any, item: RegistroData) => {
+        const computed = filtered.reduce((acc: any, item: RegistroData) => {
           acc.total += 1;
           if (item.validation === 'verified') acc.completed += 1; else acc.pending += 1;
           const d = new Date(item.created_at);
@@ -124,7 +131,6 @@ const QRCodeRg1m = () => {
           if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) acc.this_month += 1;
           return acc;
         }, { total: 0, completed: 0, pending: 0, today: 0, this_month: 0, total_cost: 0 });
-        computed.total = data.pagination?.total || computed.total;
         setStats(computed);
       } else { setRecentRegistrations([]); }
     } catch (error) { console.error('Erro ao carregar cadastros do PHP:', error); setRecentRegistrations([]); }

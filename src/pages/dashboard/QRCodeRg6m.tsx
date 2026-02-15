@@ -17,6 +17,7 @@ import { useApiModules } from '@/hooks/useApiModules';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { getModulePrice } from '@/utils/modulePrice';
 import { consultationApiService } from '@/services/consultationApiService';
+import { moduleHistoryService } from '@/services/moduleHistoryService';
 import { walletApiService } from '@/services/walletApiService';
 import SimpleTitleBar from '@/components/dashboard/SimpleTitleBar';
 import LoadingScreen from '@/components/layout/LoadingScreen';
@@ -95,6 +96,7 @@ const QRCodeRg6m = () => {
     total_cost: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
+  const [costMap, setCostMap] = useState<Record<string, number>>({});
 
   // Hooks para saldo
   const { balance, loadBalance: reloadApiBalance } = useWalletBalance();
@@ -217,6 +219,18 @@ const QRCodeRg6m = () => {
     if (user) {
       reloadApiBalance();
       loadRecentRegistrations();
+      // Carregar custos reais das consultas
+      moduleHistoryService.getHistory('/dashboard/qrcode-rg-6m', 100, 0).then(response => {
+        if (response.success && response.data?.data) {
+          const map: Record<string, number> = {};
+          response.data.data.forEach((item: any) => {
+            if (item.document && item.cost) {
+              map[item.document] = item.cost;
+            }
+          });
+          setCostMap(map);
+        }
+      }).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -1016,7 +1030,7 @@ const QRCodeRg6m = () => {
                           {formatFullDate(registration.created_at)}
                         </TableCell>
                         <TableCell className="text-right text-xs sm:text-sm font-medium text-destructive whitespace-nowrap">
-                          R$ {finalPrice.toFixed(2)}
+                          R$ {(costMap[registration.document_number] ?? finalPrice).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-center">
                           <Badge className="text-xs rounded-full bg-foreground text-background hover:bg-foreground/90">
